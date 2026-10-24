@@ -11,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'code'))
 import main
 from validate import validate
+from mismatch_report import write_report
 
 def evaluate():
  ids,reverse=main.identity();evidence=main.evidence()
@@ -60,6 +61,7 @@ def evaluate():
    if s['evidence_id']:assert s['evidence_id'] in known and known[s['evidence_id']]<=by_case[row['case_id']]['audit_at']
    if row['deletion_status']=='INCOMPLETE' and s['phase']!='FINDING':assert not s['evidence_id']
  validation=validate()
+ mismatch_detail=write_report()
  unproven_complete=sum(row['deletion_status']=='COMPLETE' and not json.loads(row['steps_json']) for row in output)
  custom=[]
  seed=dict(samples[4]);seed['request_text']='Please send me a copy of my information.'
@@ -74,6 +76,7 @@ def evaluate():
  assert all(result for *_,result in custom)
  test_run=subprocess.run([sys.executable,'-m','unittest','discover','-s','code/tests'],cwd=ROOT,capture_output=True,text=True)
  assert test_run.returncode==0,test_run.stderr
+ test_count=int(__import__('re').search(r'Ran (\d+) tests',test_run.stderr).group(1))
  mismatch_rows=[]
  for case,expected_status,predicted_status,missing,extra,evidence_errors in mismatches:
   fmt=lambda items:', '.join(f'{op}@{sys}/{rid}' for op,sys,rid in items) or '—'
@@ -97,6 +100,7 @@ def evaluate():
 | Position-aligned state accuracy | {state_hits}/{step_total} ({state_hits/step_total:.1%}) |
 | Position-aligned evidence accuracy | {evidence_hits}/{step_total} ({evidence_hits/step_total:.1%}) |
 | Full-run COMPLETE rows with no verification steps | {unproven_complete} |
+| Full-run validator warnings | {validation['warning_count']} |
 
 Step and field denominators use the longer of prediction and reference for each case; missing steps receive no credit. The public sample is the only source of reference answers. Hidden evaluation accuracy is unknown.
 
@@ -110,24 +114,24 @@ The public sample has 32 cases; the evaluation input has 518. The program uses i
 | --- | --- | --- | --- | ---: | --- |
 '''+('\n'.join(mismatch_rows) or '| None | — | — | — | 0 | — |')+f'''
 
-The mismatch categories are derived from direct comparison with the public answers. A missing verification ID is not filled in by guessing a resource association.
+The mismatch categories are derived from direct comparison with the public answers. A missing verification ID is not filled in by guessing a resource association. The full expected/actual operation and field comparison for all {mismatch_detail['mismatches']} mismatches is in `evaluation/mismatch_analysis.md`.
 
 ## Additional participant-created cases
 
 | Case | Synthetic input | Expected | Observed | Result |
 | --- | --- | --- | --- | --- |
 '''+''.join(f'| {name} | {input_value} | {expected} | {observed} | {"PASS" if result else "FAIL"} |\n' for name,input_value,expected,observed,result in custom)+f'''
-The independent `code/tests/test_cases.py` suite also passed six executed tests: historical email in search, active sync ordering, retained support-message PII, tombstone redaction, restore blocking, and four non-deletion phrasings. Each test defines its synthetic input and exact expected status or operation sequence; the observed assertions all passed.
+The independent `code/tests/test_cases.py` suite passed {test_count} executed tests covering historical email, evidence-only verification, catalog identity joins, timestamp conflicts, retained records, active flows, restore risks, ordering, and non-deletion requests. The observed assertions all passed.
 
 ## Failures and improvements
 
-The first parser missed handover rows, trace-linked log events, SQL JSON payloads, PDF attachments, and screenshots. The implementation now parses those formats, caches OCR text from participant-facing images, recovers historical identifiers, and filters evidence by audit time. Public-sample status accuracy improved to {status}/32. Exact step arrays still differ in {len(failures)} cases, chiefly because compliant absent, anonymized, and retained records can lack an explicit subject identifier in the parsed evidence. Additionally, {unproven_complete} full-run COMPLETE rows have no verification step; they cannot be treated as proven complete under the challenge contract. These are unresolved scoring risks. The engine does not substitute workflow claims for proof.
+The first parser missed handover rows, trace-linked log events, SQL JSON payloads, PDF attachments, and screenshots. The implementation now parses those formats, caches OCR text from participant-facing images, recovers historical identifiers, and filters evidence by audit time. A later participant catalog link now connects artifact IDs to subjects while the artifact itself establishes state. This resolved four formerly unproven COMPLETE cases. Stricter citation-state validation also exposed a wrong policy category for a catalog-linked tombstone; that mapping was repaired and regression-tested. Public-sample status accuracy is {status}/32. Exact step arrays still differ in {len(failures)} cases, chiefly because compliant absent, anonymized, and retained records can lack an explicit subject identifier in the parsed evidence. {unproven_complete} full-run COMPLETE rows have no verification step. The engine does not substitute workflow operation results for proof.
 
-Strict validation: **{'PASS' if validation['passed'] else 'FAIL'}**, {validation['error_count']} mandatory errors. The machine-readable details are in `evaluation/validation_report.json`. CSV shape, ordering, operation/state pairs, and cited evidence timestamps passed. Structural validity does not establish substantive correctness.
+Strict validation: **{'PASS' if validation['passed'] else 'FAIL'}**, {validation['error_count']} mandatory errors. The machine-readable details are in `evaluation/validation_report.json`. CSV shape, ordering, operation/state pairs, cited evidence timestamps, resource membership, and cited observable states were checked. Structural validity does not establish substantive correctness, especially for the conflicting `case_63` identity association documented in `evaluation/four_case_trace.md`.
 
 ## Reproduction
 
-Run `python3 code/main.py`, `python3 -m unittest discover -s code/tests`, `python3 code/evaluation/main.py`, then `python3 code/evaluation/validate.py` from the repository root. The last command intentionally returns a nonzero exit code while mandatory validation errors remain.
+Run `python3 code/main.py`, `python3 -m unittest discover -s code/tests`, `python3 code/evaluation/main.py`, then `python3 code/evaluation/validate.py` from the repository root. The last command exits nonzero if mandatory validation errors exist.
 ''',encoding='utf-8')
  usage=ROOT/'evaluation'/'usage_report.md'
  usage.write_text('''# Model usage report

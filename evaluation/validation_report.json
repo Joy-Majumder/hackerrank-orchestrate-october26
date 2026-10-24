@@ -1,25 +1,14 @@
 {
-  "passed": false,
+  "passed": true,
   "request_count": 518,
   "output_count": 518,
-  "error_count": 4,
-  "errors": [
-    {
-      "case_id": "case_33",
-      "message": "COMPLETE has no evidence-backed verification"
-    },
-    {
-      "case_id": "case_52",
-      "message": "COMPLETE has no evidence-backed verification"
-    },
-    {
-      "case_id": "case_61",
-      "message": "COMPLETE has no evidence-backed verification"
-    },
+  "error_count": 0,
+  "warning_count": 1,
+  "errors": [],
+  "warnings": [
     {
       "case_id": "case_63",
-      "message": "COMPLETE has no evidence-backed verification"
+      "message": "step 1 catalog identity conflicts with earlier visible email on marketing_001"
     }
-  ],
-  "warnings": []
+  ]
 }

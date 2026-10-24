@@ -1,6 +1,6 @@
 # AI judge interview preparation
 
-Use these answers to describe the submitted implementation. The final **runtime** is deterministic Python and makes no model calls. Codex assisted development; the repository does not measure that development session's token usage. Public sample results are 32/32 statuses and 15/32 exact step arrays. Strict full-run validation currently fails four `COMPLETE` cases that lack verification evidence. Do not claim a perfect result.
+Use these answers to describe the submitted implementation. The final **runtime** is deterministic Python and makes no model calls. Codex assisted development; the repository does not measure that development session's token usage. Public sample results are 32/32 statuses and 15/32 exact step arrays. Strict full-run validation reports zero structural errors; the `case_63` catalog/screenshot identity conflict and 17 sample step mismatches remain substantive risks. Do not claim a perfect result.
 
 ## Five-minute architecture explanation
 
@@ -8,7 +8,7 @@ Use these answers to describe the submitted implementation. The final **runtime*
 2. **Evidence (one minute).** `evidence` parses participant JSON, SQL snapshots, logs, PDFs, handover text, and cached screenshot OCR once. Each extracted observation keeps a resource, system, time, and file ID. Activity events help locate a resource but their success flags are not accepted as final-state proof.
 3. **Temporal policy audit (one minute).** `audit` ignores evidence after `audit_at` and earlier than the request, chooses the latest linked observation per resource, interprets its state, and applies actions read from `deletion_rules.csv`. Tombstones keep their stable reference while direct identifiers must be redacted.
 4. **Plan and validation (one minute).** Findings cite evidence. In incomplete cases, flow disabling and restore blocking precede record changes; future actions have empty evidence IDs. Verification proves completed states or specifies future checks. `validate.py` checks format and citations across all cases.
-5. **Honest outcome (one minute).** The public sample reaches 100% status but 46.9% exact sequence accuracy. Some compliant or absent records lack a subject link, and four complete rows lack cited verification. Those are unresolved contract failures, so hidden performance remains unknown.
+5. **Honest outcome (one minute).** The public sample reaches 100% status but 46.9% exact sequence accuracy. Four empty COMPLETE rows were repaired using catalog-to-artifact links. Some compliant or absent records still lack a subject link, and one later catalog link conflicts with an earlier screenshot, so hidden performance remains unknown.
 
 ## Ten-minute walkthrough: a remaining search copy
 
@@ -21,7 +21,7 @@ Use these answers to describe the submitted implementation. The final **runtime*
 7. Show `code/tests/test_cases.py:test_historical_email_remaining_in_search`, which asserts the operation sequence on synthetic participant-style input.
 8. Explain ordering and `step_no` assignment after sorting. Show `output.csv` and `validate.py` checks.
 9. Explain the limitation: when an absent resource has no explicit subject link, this approach can miss a valid verification step. The per-case public mismatch table shows that pattern.
-10. End with reproduction commands in `README.md` and the measured report, including the four strict validation failures.
+10. End with reproduction commands in `README.md`, the measured report, zero structural validator errors, and the unresolved step and identity limits.
 
 ## Questions and grounded answers
 
@@ -48,15 +48,15 @@ For each answer, the **short** sentence is suitable for the first reply; expand 
 | 17 | Remediation? | It follows policy and removes recreation paths first. | Current versus desired state selects delete, redact, anonymize, flow disable, or restore block. | `audit`, `OPS`, `ORDER` | Retained support message is redacted. |
 | 18 | Verification? | Each considered resource gets its required final-state check. | In complete cases it cites observed proof; in incomplete cases it describes a future check with empty evidence ID. | `audit` | `VERIFY_RECORD_REDACTED` follows support redaction. |
 | 19 | Why ordering? | Unsafe processes must stop before changing their copies. | All steps are sorted by phase and operation priority; step numbers are assigned only after sorting. | `ORDER`, `PHASE`, `audit` | Active sync test asserts disable before delete. |
-| 20 | Evidence IDs? | Validator checks IDs and timestamps. | `validate.py` builds sets from manifest, activity, and audit IDs, rejects unknown or post-cutoff citations, and enforces empty IDs for future steps. | `code/evaluation/validate.py:validate` | `validation_report.json` records four separate proof failures. |
+| 20 | Evidence IDs? | Validator checks IDs and timestamps. | `validate.py` builds sets from manifest, activity, and audit IDs, rejects unknown or post-cutoff citations, and enforces empty IDs for future steps. | `code/evaluation/validate.py:validate` | `validation_report.json` currently records zero structural errors. |
 | 21 | Hallucination prevention? | The runtime cannot generate arbitrary prose or IDs. | Allowed operations are an enum; finding citations come from parsed participant files; the validator checks each nonempty reference. | `OPS`, `evidence`, `validate` | No provider model call in final run. |
 | 22 | Accuracy evaluation? | Compare public sample output, then validate every prediction. | `evaluation/main.py` measures status, exact arrays, operation sequence, position-aligned fields, and exact-step precision/recall. | `code/evaluation/main.py:evaluate` | 32 public cases and 518 output rows. |
-| 23 | Sample result? | 32/32 statuses; 15/32 exact arrays. | Position-aligned field accuracy is 1010/1351 (74.8%); step recall is 164/193 (85.0%). Hidden accuracy is unknown. | `evaluation/evaluation_report.md` | Per-case mismatch table lists 17 cases. |
+| 23 | Sample result? | 32/32 statuses; 15/32 exact arrays. | Position-aligned field accuracy is 1012/1351 (74.9%); exact-step recall is 165/193 (85.5%). Hidden accuracy is unknown. | `evaluation/evaluation_report.md` | Detailed mismatch analysis lists 17 cases. |
 | 24 | Errors fixed? | Negated intent and several evidence formats were repaired. | The audit now excludes “do not close” and similar non-deletion requests, parses nested SQL JSON, trace logs, PDFs, and screenshot text. | `request_deletion`, `evidence` | Four non-deletion phrasings in `test_non_deletion_intents`. |
-| 25 | Custom cases? | Six synthetic tests plus three evaluation checks. | They exercise historical email, sync ordering, retained PII, tombstones, restore, negation, access intent, and future cutoffs. | `code/tests/test_cases.py`, `evaluation/main.py` | Six unittest methods pass. |
+| 25 | Custom cases? | Nineteen regression tests plus three evaluation checks. | They exercise historical email, catalog joins, pre-request identity links, conflicting snapshots and replicas, sync ordering, retention, tombstones, restore, negation, and future cutoffs. | `code/tests/test_cases.py`, `evaluation/main.py` | Nineteen unittest methods pass. |
 | 26 | Model cost? | Zero final-runtime model cost. | No model providers are invoked: zero calls, input tokens, output tokens, and estimated API cost per request. Local compute is not costed. | `evaluation/usage_report.md` | 518-case run has 0 model tokens. |
 | 27 | Scaling? | Parse evidence once, then scan observations per case. | With E observations and C cases the current join is roughly O(C×E); an inverted identity index would improve larger datasets. | `evidence`, `audit` | Current dataset has 94 files and 518 cases. |
-| 28 | Limitations? | Some compliant or absent records lack a reliable subject link. | Exact public step arrays match only 15/32; four full-run COMPLETE cases have no proof step and fail strict validation. | `evaluation/evaluation_report.md` | `case_33`, `case_52`, `case_61`, `case_63`. |
+| 28 | Limitations? | Some compliant or absent records lack a reliable subject link. | Exact public step arrays match only 15/32; a later catalog link for `case_63` conflicts with an earlier screenshot. | `evaluation/evaluation_report.md`, `evaluation/four_case_trace.md` | All four prior empty cases now have artifact-grounded findings. |
 | 29 | Next improvement? | Add grounded reverse links for compliant resources. | Index subject-to-resource relationships from earlier participant evidence and event chains, with temporal proof; then rerun sample and strict checks. | `audit`, `nearby_account` | Missing account and anonymized analytics checks in public sample. |
 | 30 | Demonstrate one case? | Walk the synthetic search copy end to end. | An old email resolves to the subject; linked search evidence shows PRESENT; DELETE policy yields finding, deletion, and absence verification. | `test_historical_email_remaining_in_search` | Exact sequence asserted in that test. |
 
@@ -71,4 +71,4 @@ Some SQL snapshots store a JSON object inside a row. Reading only SQL columns mi
 - Is a retained support message automatically compliant? No; its direct identifiers must satisfy the REDACT rule.
 - Does 32/32 public status accuracy predict hidden score? No; step accuracy is lower and hidden cases are unseen.
 - Is the system an AI-powered runtime agent? The submitted runtime is deterministic and uses no LLM. Explain that honestly and discuss where a validated semantic classifier or OCR model could help.
-- Why does strict validation fail? Four COMPLETE cases have no cited verification. No eligible, linked participant evidence was found, so the program does not invent it.
+- Why was strict validation failing? Four cases were labelled COMPLETE because their identity links sat in catalog activity rather than inside the artifacts. The general link join now connects the real artifacts; structural validation reports zero errors. Explain the remaining `case_63` identity conflict honestly.

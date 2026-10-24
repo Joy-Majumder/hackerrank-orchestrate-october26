@@ -11,6 +11,8 @@ DATA=ROOT/'dataset'
 OPS={'REPORT_REMAINING_RECORD':('FINDING','PRESENT'),'REPORT_EXPOSED_PII':('FINDING','PRESENT'),'REPORT_ACTIVE_DATA_FLOW':('FINDING','ACTIVE'),'REPORT_RESTORE_RISK':('FINDING','ACTIVE'),'DISABLE_DATA_FLOW':('REMEDIATION','DISABLED'),'BLOCK_RESTORE':('REMEDIATION','BLOCKED'),'DELETE_RECORD':('REMEDIATION','ABSENT'),'REDACT_RECORD':('REMEDIATION','REDACTED'),'ANONYMIZE_RECORD':('REMEDIATION','ANONYMIZED'),'VERIFY_RECORD_ABSENT':('VERIFICATION','ABSENT'),'VERIFY_RECORD_PRESENT':('VERIFICATION','PRESENT'),'VERIFY_RECORD_REDACTED':('VERIFICATION','REDACTED'),'VERIFY_RECORD_ANONYMIZED':('VERIFICATION','ANONYMIZED'),'VERIFY_DATA_FLOW_DISABLED':('VERIFICATION','DISABLED'),'VERIFY_RESTORE_BLOCKED':('VERIFICATION','BLOCKED')}
 ORDER={op:i for i,op in enumerate(OPS)}
 PHASE={'FINDING':0,'REMEDIATION':1,'VERIFICATION':2}
+STATE_RISK={'ACTIVE':3,'PRESENT':3,'CONTACT_PRESENT':3,'ATTACHMENT_PRESENT':3,
+            'REDACTED':1,'ANONYMIZED':1,'ABSENT':0,'DISABLED':0,'BLOCKED':0}
 
 def read(name):
  with (DATA/name).open(encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
@@ -23,7 +25,24 @@ def tokens(v):
  elif v is not None:yield str(v).strip().casefold()
 
 def system(rid):
- return {'account':'account_service','search':'search_service','analytics':'analytics_platform','support':'support_platform','export':'export_service','backup':'backup_service','audit':'security_service','data':'integration_service','tombstone':'identity_service','marketing':'marketing_service','email':'notification_service','cache':'cache_service'}.get(rid.split('_')[0],'')
+ return {'account':'account_service','search':'search_service','analytics':'analytics_platform','support':'support_platform','export':'export_service','backup':'backup_service','audit':'security_service','data':'integration_service','tombstone':'identity_service','marketing':'marketing_platform','email':'notification_service','cache':'cache_service','object':'object_storage'}.get(rid.split('_')[0],'')
+
+@lru_cache(maxsize=1)
+def catalog_links():
+ """Identity associations only; a separate artifact must prove resource state."""
+ links=[]
+ for row in activities():
+  if row['event_type']!='LINK_RESOURCE_IDENTITY':continue
+  details=row['details']
+  alias=re.search(r'\(([^)]+)\)',details)
+  subjects=set(x.casefold() for x in re.findall(r'[\w.+-]+@[\w.-]+|\buser_\d+\b',details))
+  if subjects:
+   links.append((row['event_time'],row['target_system'],row['resource_id'],alias.group(1) if alias else '',subjects))
+ return links
+
+def linked_category(sys):
+ return {'export_service':'USER_EXPORT','object_storage':'SUPPORT_ATTACHMENT',
+         'identity_service':'ACCOUNT_TOMBSTONE'}.get(sys,'')
 
 def image_text(paths):
  """Use available local OCR; absence of OCR never invents image facts."""
@@ -70,6 +89,7 @@ def identity():
 def evidence():
  found=[]
  manifest=read('evidence_files.csv')
+ aliases=[(sys,rid,alias) for _,sys,rid,alias,_ in catalog_links() if alias and alias!=rid]
  images=image_text([DATA/m['file_path'] for m in manifest if m['file_path'].endswith('.png')])
  for m in manifest:
   p=DATA/m['file_path'];eid=m['file_id'];cap=m['captured_at']
@@ -123,12 +143,23 @@ def evidence():
     text=' '.join(x.decode('latin-1') for x in re.findall(rb'\(([^()]*)\)\s*Tj',decoded))
     for rid in set(re.findall(r'\b(?:account|support|audit_record|analytics|backup|export|search)_\d+\b',text)):
      add({'resource_id':rid,'document_text':text,'pdf_attachment':p.name=='delivery_correction_attachment.pdf'},cap)
+    for link_sys,rid,alias in aliases:
+     if alias in text:
+      record={'resource_id':rid,'document_text':text}
+      if linked_category(link_sys):record['record_type']=linked_category(link_sys)
+      add(record,cap,link_sys)
   elif p.suffix=='.png':
    lines=images.get(str(p),[])
    for n,line in enumerate(lines):
-    for rid in set(re.findall(r'\b(?:account|support|audit_record|analytics|backup|export|search|marketing|tombstone|data_flow)_\d+\b',line)):
+    for rid in set(re.findall(r'\b(?:account|support|audit_record|analytics|backup|export|search|marketing|tombstone|data_flow|object)_\d+\b',line)):
      nearby=' '.join(lines[max(0,n-8):min(len(lines),n+9)])
      add({'resource_id':rid,'image_text':nearby,'raw_line':nearby},cap)
+   image_blob=' '.join(lines)
+   for link_sys,rid,alias in aliases:
+    if alias in image_blob:
+     record={'resource_id':rid,'image_text':image_blob}
+     if linked_category(link_sys):record['record_type']=linked_category(link_sys)
+     add(record,cap,link_sys)
   elif p.suffix in ('.log','.txt'):
    lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
    traces=defaultdict(list)
@@ -142,6 +173,7 @@ def evidence():
       add({'resource_id':parts[2],'record_type':parts[3],'result':parts[4],'subject_reference':parts[5],'raw_line':line},parts[0],parts[1]);continue
     match=re.search(r'\bresource_id\\?["\']?\s*[:=]\s*\\?["\']?([\w-]+)',line)
     if match:
+     if re.search(r'\bevent=[\w]+_started\b',line):continue
      mtrace=re.search(r'\b(?:tr|rb)-[A-Za-z0-9-]+\b',line)
      context=' '.join(traces[mtrace.group(0)]) if mtrace else line
      add({'resource_id':match.group(1),'raw_line':line,'trace_context':context},line[:20] if re.match(r'20\d\d-',line) else cap)
@@ -200,6 +232,22 @@ def nearby_account(req):
  if candidates and candidates[0][0]<=600 and (len(candidates)==1 or candidates[1][0]>1800):return candidates[0][1]
  return None
 
+def nearby_anonymized_profile(req,ev):
+ """A unique nearby operation locates an ID; a later snapshot proves its state."""
+ def dt(value):return datetime.fromisoformat(value.replace('Z','+00:00'))
+ reported=dt(req['reported_at'])
+ candidates=sorted((abs((dt(a['event_time'])-reported).total_seconds()),a['resource_id']) for a in activities()
+                   if a['event_type']=='ANONYMIZE_RECORD' and a['target_system']=='analytics_platform'
+                   and req['requested_at']<=a['event_time']<=req['audit_at'])
+ if not candidates or candidates[0][0]>600 or (len(candidates)>1 and candidates[1][0]<=1800):return None
+ rid=candidates[0][1]
+ observations=[(at,cap,eid,sys,r) for eid,cap,at,sys,r in ev if sys=='analytics_platform'
+               and r.get('resource_id')==rid and cap<=req['audit_at'] and at<=req['audit_at']]
+ if not observations:return None
+ at,cap,eid,sys,r=max(observations,key=lambda item:item[:2])
+ if state(sys,r)!='ANONYMIZED':return None
+ return (sys,rid),(at,cap,eid,'ANONYMIZED',category(sys,r,'ANONYMIZED'))
+
 def absent_account_evidence(req,rid,ev):
  """A full account primary/failover snapshot can establish that a linked ID is absent."""
  manifest=[m for m in read('evidence_files.csv') if 'customer_accounts_failover_replica' in m['file_path']
@@ -224,29 +272,48 @@ def category(sys,r,current):
  if sys=='identity_service':return 'ACCOUNT_TOMBSTONE'
  if sys=='notification_service':return 'EMAIL_DELIVERY_LOG'
  if sys=='export_service':return 'USER_EXPORT'
- if sys=='marketing_service':return 'MARKETING_PROFILE'
+ if sys in ('marketing_service','marketing_platform'):return 'MARKETING_PROFILE'
  if sys=='cache_service':return 'CACHE_ENTRY'
+ if sys=='object_storage':return 'SUPPORT_ATTACHMENT'
  return 'USER_PROFILE'
 
 def step(op,sys,rid,eid=''):
  phase,value=OPS[op]
  return dict(step_no=0,phase=phase,system_id=sys,resource_id=rid,operation=op,state=value,evidence_id=eid)
 
+def matches_subject(record,keys):
+ vals=set(tokens(record));blob=' '.join(vals)
+ return any(k in vals or (len(k)>12 and k in blob) or
+            (k.startswith('user_') and re.search(r'(?<![\w])'+re.escape(k)+r'(?![\w])',blob)) for k in keys)
+
 def audit(req,ids,reverse,ev):
  if not request_deletion(req['request_text']):return 'NOT_APPLICABLE',[]
  uid=next(iter(sorted(reverse.get(req['email'].casefold(),()))),None)
  keys=set(ids.get(uid,()))|{req['email'].casefold()};keys={k for k in keys if len(k)>6}
+ linked_resources={(sys,rid) for at,sys,rid,_,subjects in catalog_links()
+                   if req['requested_at']<=at<=req['audit_at'] and keys&subjects}
+ # Earlier identity-bearing records can link a resource to a later compliant
+ # observation, but an old snapshot alone cannot prove its state at audit_at.
+ linked_resources.update((sys,r['resource_id']) for _,cap,at,sys,r in ev
+                         if cap<=req['audit_at'] and at<req['requested_at'] and sys
+                         and matches_subject(r,keys))
  latest={}
  for eid,cap,at,sys,r in ev:
   if cap>req['audit_at'] or at>req['audit_at'] or at<req['requested_at'] or not sys:continue
-  vals=set(tokens(r));blob=' '.join(vals)
-  if not any(k in vals or (len(k)>12 and k in blob) or (k.startswith('user_') and re.search(r'(?<![\w])'+re.escape(k)+r'(?![\w])',blob)) for k in keys):continue
+  owner=str(r.get('user_id') or r.get('subject_reference') or '').casefold()
+  if re.fullmatch(r'user_\d+',owner) and owner not in keys:continue
+  if (sys,r['resource_id']) not in linked_resources and not matches_subject(r,keys):continue
   key=(sys,r['resource_id']);v=(at,cap,eid,state(sys,r),category(sys,r,state(sys,r)))
-  if key not in latest or v[:2]>=latest[key][:2]:latest[key]=v
+  # Replicas at the same observation time can disagree; preserve the exposed
+  # copy until a strictly later eligible observation establishes its treatment.
+  if key not in latest or (v[:2],STATE_RISK.get(v[3],0))>=(latest[key][:2],STATE_RISK.get(latest[key][3],0)):
+   latest[key]=v
  linked=nearby_account(req) if not any(sys=='account_service' for sys,_ in latest) else None
  if linked:
   proof=absent_account_evidence(req,linked,ev)
   if proof:latest[('account_service',linked)]=(req['reported_at'],req['reported_at'],proof,'ABSENT','USER_PROFILE')
+ nearby_analytics=nearby_anonymized_profile(req,ev)
+ if nearby_analytics and nearby_analytics[0] not in latest:latest[nearby_analytics[0]]=nearby_analytics[1]
  findings=[];remedies=[];checks=[]
  actions=policy_actions()
  for (sys,rid),(_,_,eid,current,cat) in latest.items():

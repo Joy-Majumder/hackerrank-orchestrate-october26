@@ -1,6 +1,7 @@
 """Strict output-contract validator; writes a machine-readable report."""
 import csv
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -17,6 +18,7 @@ def validate():
  requests=main.read('deletion_requests.csv')
  case_ids=[r['case_id'] for r in requests]
  req={r['case_id']:r for r in requests}
+ ids_by_user,reverse=main.identity()
  with (ROOT/'output.csv').open(newline='',encoding='utf-8') as f:
   reader=csv.DictReader(f);header=reader.fieldnames;output=list(reader)
  if header!=['case_id','deletion_status','steps_json']:error('*','incorrect CSV header')
@@ -29,6 +31,12 @@ def validate():
  known.update({r['activity_id']:r['event_time'] for r in main.read('system_activity.csv')})
  known.update({r['audit_id']:r['event_time'] for r in main.read('user_audit_log.csv')})
  resources={(system,r['resource_id']) for _,_,_,system,r in main.evidence()}
+ observed={}
+ for eid,_,_,system,record in main.evidence():
+  observed.setdefault((eid,system,record['resource_id']),set()).add(main.state(system,record))
+ manifest={r['file_id']:r for r in main.read('evidence_files.csv')}
+ record_by_key={}
+ for eid,_,_,system,record in main.evidence():record_by_key.setdefault((eid,system,record['resource_id']),[]).append(record)
  resources.update((r['target_system'],r['resource_id']) for r in main.read('system_activity.csv'))
  resources.update((r['source_system'],r['resource_id']) for r in main.read('system_activity.csv'))
  for row in output:
@@ -58,6 +66,31 @@ def validate():
    if eid:
     if eid not in known:error(case,f'unknown evidence {eid}')
     elif case in req and known[eid]>req[case]['audit_at']:error(case,f'evidence {eid} is after audit_at')
+    if eid in manifest:
+     states=observed.get((eid,s.get('system_id'),s.get('resource_id')),set())
+     scoped_absence=(op=='VERIFY_RECORD_ABSENT' and s.get('system_id')=='account_service'
+                     and 'customer_accounts_failover_replica' in manifest[eid]['file_path']
+                     and s.get('resource_id') not in {rid for file_id,sys,rid in observed if file_id==eid and sys=='account_service'})
+     if not states and not scoped_absence:error(case,f'step {index} citation does not contain the resource')
+     required={'REPORT_REMAINING_RECORD':{'PRESENT','CONTACT_PRESENT','ATTACHMENT_PRESENT'},
+               'REPORT_EXPOSED_PII':{'PRESENT'},'REPORT_ACTIVE_DATA_FLOW':{'ACTIVE'},
+               'REPORT_RESTORE_RISK':{'ACTIVE'},'VERIFY_RECORD_ABSENT':{'ABSENT'},
+               'VERIFY_RECORD_PRESENT':{'PRESENT'},'VERIFY_RECORD_REDACTED':{'REDACTED'},
+               'VERIFY_RECORD_ANONYMIZED':{'ANONYMIZED'},'VERIFY_DATA_FLOW_DISABLED':{'DISABLED'},
+               'VERIFY_RESTORE_BLOCKED':{'BLOCKED'}}.get(op)
+     if states and required and not (states&required):error(case,f'step {index} citation does not prove {op}')
+     if case in req and states:
+      uid=next(iter(sorted(reverse.get(req[case]['email'].casefold(),()))),None)
+      subject_keys=set(ids_by_user.get(uid,()))|{req[case]['email'].casefold()}
+      is_catalog_linked=any(sys==s.get('system_id') and rid==s.get('resource_id') and at<=req[case]['audit_at'] and subjects&subject_keys
+                            for at,sys,rid,_,subjects in main.catalog_links())
+      if is_catalog_linked:
+       for record in record_by_key.get((eid,s.get('system_id'),s.get('resource_id')),[]):
+        visible=' '.join(str(record.get(k,'')) for k in ('image_text','document_text'))
+        visible_emails={x.casefold() for x in re.findall(r'[\w.+-]+@[\w.-]+',visible)}
+        if visible_emails and not visible_emails&subject_keys:
+         warnings.append({'case_id':case,'message':f'step {index} catalog identity conflicts with earlier visible email on {s.get("resource_id")}'})
+         break
    elif phase=='FINDING' or status=='COMPLETE':error(case,f'step {index} lacks required evidence')
    if status=='INCOMPLETE' and phase!='FINDING' and eid:error(case,f'future step {index} has evidence')
    if status=='COMPLETE' and phase!='VERIFICATION':error(case,'COMPLETE contains non-verification step')
@@ -67,7 +100,7 @@ def validate():
   if all(isinstance(s,dict) and s.get('operation') in main.OPS for s in steps):
    ordered=sorted(steps,key=lambda s:(main.PHASE[s['phase']],main.ORDER[s['operation']],s['system_id'],s['resource_id']))
    if steps!=ordered:error(case,'steps are not in required order')
- report={'passed':not errors,'request_count':len(requests),'output_count':len(output),'error_count':len(errors),'errors':errors,'warnings':warnings}
+ report={'passed':not errors,'request_count':len(requests),'output_count':len(output),'error_count':len(errors),'warning_count':len(warnings),'errors':errors,'warnings':warnings}
  target=ROOT/'evaluation'/'validation_report.json';target.parent.mkdir(exist_ok=True)
  target.write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
  return report
