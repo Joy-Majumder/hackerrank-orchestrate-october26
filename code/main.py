@@ -179,7 +179,8 @@ def state(sys,r):
 
 def request_deletion(t):
  t=t.casefold()
- if any(s in t for s in ("do not delete","don't delete","not asking for deletion","without deleting","no deletion")):return False
+ if any(s in t for s in ("do not delete","don't delete","do not close","don't close","not asking for deletion","not requesting deletion","not a request to erase","without deleting","without removing","no deletion")):return False
+ if re.search(r'\b(?:remove|unsubscribe|opt out)\b.*\b(?:marketing|promotional)\b.*\bonly\b',t):return False
  return any(re.search(p,t) for p in (r'\bdelet',r'\beras',r'\bremov',r'\bclos(?:e|ed|ing)',r'\bforget me',r'\bgo(?:ne)?\b',r'\bsupprim',r'\bsuppres',r'\beffac',r'\belimin',r'\bborrar',r'\blösch',r'\bcancellazione',r'\bexclu',r'削除',r'删除',r'삭제',r'حذف'))
 
 def policy_actions():

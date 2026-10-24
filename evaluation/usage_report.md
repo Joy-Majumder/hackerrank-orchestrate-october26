@@ -8,3 +8,5 @@ Final full-dataset run: `python3 code/main.py`; 518 requests. The runtime uses d
 | **Overall** | | **0** | **0** | **0** | **0** | **$0.00** |
 
 Average model tokens per request: 0 input, 0 output, 0 total. Estimated model cost per request: $0.00. Development-session model usage is outside the final runtime and is not available as a reliable token count.
+
+The included screenshot OCR text cache was generated before the final run from participant-facing images. It contains observations, not model answers. The final run read that cache and made zero provider calls. Cost estimates cover model API usage only; local CPU time is not priced.

@@ -1,0 +1,25 @@
+{
+  "passed": false,
+  "request_count": 518,
+  "output_count": 518,
+  "error_count": 4,
+  "errors": [
+    {
+      "case_id": "case_33",
+      "message": "COMPLETE has no evidence-backed verification"
+    },
+    {
+      "case_id": "case_52",
+      "message": "COMPLETE has no evidence-backed verification"
+    },
+    {
+      "case_id": "case_61",
+      "message": "COMPLETE has no evidence-backed verification"
+    },
+    {
+      "case_id": "case_63",
+      "message": "COMPLETE has no evidence-backed verification"
+    }
+  ],
+  "warnings": []
+}
