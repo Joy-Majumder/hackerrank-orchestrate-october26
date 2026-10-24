@@ -66,6 +66,41 @@ For each answer, the **short** sentence is suitable for the first reply; expand 
 
 ## Hardest bug and what remains
 
+## Direct answers to the judge's 30 prompts
+
+1. **Problem:** Prove deletion state across every relevant copy and recreation path, rather than accepting the workflow's claim (`audit`).
+2. **Architecture:** `main` loads requests; `identity` resolves subjects; `evidence` normalizes files; `audit` applies time and policy; `validate.py` checks the CSV.
+3. **Python:** Its standard library supplies CSV, JSON, SQLite, regex, and compression support without an install step (`README.md`, `code/main.py`).
+4. **Determinism:** Fixed participant files, cached screenshot text, explicit ordering, and no runtime model calls make repeated runs byte-identical (`main`, `evaluation/usage_report.md`).
+5. **Codex:** Codex helped inspect evidence, implement parsers, add tests, and evaluate failures; the submitted runtime is ordinary Python, and development token usage was not measured.
+6. **Identity resolver:** `identity` indexes stable user IDs and current identifiers while removing names shared by different users.
+7. **Historical identifiers:** `identity` indexes old and new values from `user_audit_log.csv`, so a former email can locate the same stable subject.
+8. **Evidence index:** `evidence` creates observations with file ID, capture time, observation time, system, resource ID, and parsed fields; `audit` joins them to a subject.
+9. **PDFs and screenshots:** `evidence` extracts text from supported PDF streams; `image_text` reads the cached transcription of participant screenshots, with optional local OCR tools.
+10. **Time engine:** `audit` rejects observations or captures after `audit_at`, then ranks eligible observations by observed time, capture time, and tied-state exposure (`observation_rank`).
+11. **`audit_at`:** It is the cutoff at which the requested deletion state must be judged (`AGENTS.md` §6.2).
+12. **Conflicts:** Later eligible observations take precedence; tied replica observations preserve the exposed state, and unresolved identity conflict is reported as a warning (`observation_rank`, `validate.py`).
+13. **Policy:** `policy_actions` reads `deletion_rules.csv`; `category` maps records to actions before `audit` selects the required state.
+14. **Retention:** Security audit records under RETAIN get `VERIFY_RECORD_PRESENT`; redaction policies keep a record but remove direct identifiers (`audit`).
+15. **Incomplete deletion:** Any linked resource whose observed state violates its policy creates an evidence-cited finding and an `INCOMPLETE` status (`audit`).
+16. **Active flows:** An enabled relevant integration creates `REPORT_ACTIVE_DATA_FLOW`, followed by disablement and a future check (`state`, `audit`).
+17. **Restore risk:** A relevant backup with restoration allowed creates `REPORT_RESTORE_RISK`, `BLOCK_RESTORE`, and `VERIFY_RESTORE_BLOCKED` (`state`, `audit`).
+18. **Remediation:** `audit` chooses delete, redact, anonymize, disable, or block based on observed state and policy; process controls sort before record changes.
+19. **Verification:** Compliant COMPLETE resources cite current proof; INCOMPLETE resources receive future checks with empty evidence IDs (`audit`).
+20. **Provenance:** Each parsed observation retains its participant-visible file ID; activity and identity audit IDs remain separate known citation types (`evidence`, `validate.py`).
+21. **No fabricated evidence:** The runtime emits only parsed or known IDs, and `validate.py` checks citation existence, time, and artifact state. These checks do not guarantee a correct subject association.
+22. **Order:** `audit` sorts by phase, prescribed operation order, system ID, and resource ID, then numbers the steps.
+23. **Validation:** `validate.py` checks rows, JSON schema, operations, citations, timestamps, phases, sorting, and supported resources, and writes `validation_report.json`.
+24. **Tests:** Twenty-three unit tests and three additional evaluation checks passed; all 32 public samples were measured, and the 518-row strict validation passed.
+25. **Measured results:** Public status 32/32, exact arrays 15/32, position-aligned fields 1012/1351, and full-run strict errors 0 (`evaluation/evaluation_report.md`).
+26. **Seventeen differences:** They are missing verification steps for 15 absent account resources, six anonymized analytics resources, and seven retained audit resources; those counts overlap (`evaluation/mismatch_analysis.md`).
+27. **Case_63:** A later catalog event links `marketing_001` to the subject, while an earlier screenshot shows another person's details; no later profile snapshot resolves it (`evaluation/four_case_trace.md`).
+28. **Limitations:** Identifier-free compliant resources can be missed; timed activity joins are weaker than explicit identity links; screenshot OCR and parser coverage are finite (`evaluation/final_audit.md`).
+29. **Next accuracy work:** Add subject-to-resource lineage from earlier participant evidence, then require a later state artifact and rerun both public and independent tests.
+30. **Scale:** The current per-case scan is roughly O(cases × observations); an indexed subject/resource observation store could reduce repeated joins without changing the evidence rules.
+
+The measured results above are public-sample and structural checks. They do not establish hidden-test accuracy.
+
 Some SQL snapshots store a JSON object inside a row. Reading only SQL columns missed direct identifiers, so the parser now decodes `record_json` and merges its fields before identity matching. The regression suite and public sample were rerun after this change. The harder unresolved issue is **proof of absence**: absence cannot be linked to a person simply because a later snapshot lacks an email. The implementation uses a uniquely timed account activity to locate a resource and a later full snapshot to verify its absence; it still misses other compliant resources. Fabricating those links would improve apparent step counts while violating evidence rules.
 
 ## Challenging follow-ups

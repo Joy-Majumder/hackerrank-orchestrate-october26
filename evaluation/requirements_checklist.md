@@ -17,8 +17,8 @@ Official source: `AGENTS.md` §6 and `problem_statement.md`. The pasted developm
 | Phase/operation/state/order | AGENTS §6.3–6.4 | `OPS`, `ORDER`, `PHASE`, `audit` | Strict validator | Pass |
 | Public sample evaluation and custom cases | AGENTS §6.8 | `code/evaluation/main.py`, `code/tests/test_cases.py` | 32 samples, 23 tests, 3 extra checks | Pass as evaluation deliverable; 15/32 exact arrays remain |
 | Model usage report | AGENTS §6.8 | `evaluation/usage_report.md` | Final run inspection | Pass: 0 runtime model calls |
-| Archive contents and exclusions | AGENTS §6.9 | `code.zip` | ZIP listing and clean-run reproduction | Recheck after final packaging |
-| Root append-only transcript | AGENTS §2, §5 | `log.txt` | Entry review and metadata check | Current turn entry required before final commit |
-| Commit and authorized push | User request | Git | Local/remote head verification | Pending final commit |
+| Archive contents and exclusions | AGENTS §6.9 | `code.zip` | ZIP integrity, exclusions, and extracted clean-run reproduction | Pass: extracted run reproduced the 518-row CSV byte for byte and passed tests and validator |
+| Root append-only transcript | AGENTS §2, §5 | `log.txt` | Entry review and metadata check | Existing entries have one populated `tool=` and `model=` each; append each later turn honestly |
+| Commit and authorized push | User request | Git | Local/remote head verification | Verify final commit and remote head after the documentation update |
 
 The machine-readable full-output contract check is `evaluation/validation_report.json`. It currently reports zero mandatory structural errors and one warning. The catalog/screenshot identity conflict in `case_63` is documented in `evaluation/four_case_trace.md`; structural validation cannot decide that factual dispute.
