@@ -6,6 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import main
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'evaluation'))
+from validate import visible_identity_conflict
 
 T0='2020-01-01T00:00:00Z'
 T1='2020-01-02T00:00:00Z'
@@ -28,6 +30,28 @@ class AuditEdgeCases(unittest.TestCase):
   self.assertEqual(status,'INCOMPLETE')
   self.assertEqual([s['operation'] for s in steps],['REPORT_REMAINING_RECORD','DELETE_RECORD','VERIFY_RECORD_ABSENT'])
   self.assertEqual(steps[0]['evidence_id'],'evidence_custom')
+
+ def test_identity_index_excludes_snapshot_metadata(self):
+  rows={'user_identities.csv':[{'user_id':'user_101','name':'Alex Morgan','email':'alex@example.test',
+                                'phone':'+1 555 0101','email_hash':'hash_abc123','updated_at':'2026-05-01T00:00:00Z'}],
+        'user_audit_log.csv':[]}
+  with patch.object(main,'read',side_effect=lambda name:rows[name]):
+   ids,reverse=main.identity()
+  self.assertIn('alex@example.test',ids['user_101'])
+  self.assertNotIn('2026-05-01t00:00:00z',ids['user_101'])
+  self.assertNotIn('2026-05-01t00:00:00z',reverse)
+
+ def test_shared_name_does_not_merge_unrelated_users(self):
+  base={'phone':'','email_hash':'','updated_at':'2026-01-01T00:00:00Z'}
+  rows={'user_identities.csv':[{'user_id':'user_101','name':'Alex Morgan','email':'alex.one@example.test',**base},
+                                {'user_id':'user_202','name':'Alex Morgan','email':'alex.two@example.test',**base}],
+        'user_audit_log.csv':[]}
+  with patch.object(main,'read',side_effect=lambda name:rows[name]):
+   ids,reverse=main.identity()
+  self.assertNotIn('alex morgan',ids['user_101'])
+  self.assertNotIn('alex morgan',ids['user_202'])
+  self.assertNotIn('alex morgan',reverse)
+  self.assertEqual(reverse['alex.one@example.test'],{'user_101'})
 
  def test_active_sync_is_disabled_before_record_change(self):
   ev=[observation('integration_service','data_flow_123',{'customer_email':OLD,'enabled':True}),
@@ -170,5 +194,16 @@ class AuditEdgeCases(unittest.TestCase):
   status,steps=main.audit(case,ids,reverse,ev)
   self.assertEqual(status,'COMPLETE')
   self.assertTrue(any(s['operation']=='VERIFY_RECORD_REDACTED' and s['resource_id']=='tombstone_17' for s in steps))
+
+ def test_short_catalog_alias_does_not_create_unrelated_pdf_observation(self):
+  matches=[eid for eid,_,_,sys,record in main.evidence()
+           if sys=='identity_service' and record.get('resource_id')=='tombstone_17']
+  self.assertIn('evidence_42',matches)
+  self.assertNotIn('evidence_27',matches)
+
+ def test_catalog_link_conflicting_visible_subject_is_flagged(self):
+  record={'image_text':'marketing_001 • other@example.test • Live'}
+  self.assertTrue(visible_identity_conflict([record],{'subject@example.test'}))
+  self.assertFalse(visible_identity_conflict([record],{'other@example.test'}))
 
 if __name__=='__main__':unittest.main()

@@ -14,6 +14,11 @@ PHASE={'FINDING':0,'REMEDIATION':1,'VERIFICATION':2}
 STATE_RISK={'ACTIVE':3,'PRESENT':3,'CONTACT_PRESENT':3,'ATTACHMENT_PRESENT':3,
             'REDACTED':1,'ANONYMIZED':1,'ABSENT':0,'DISABLED':0,'BLOCKED':0}
 
+def observation_rank(observation):
+ """Later state evidence wins; tied replicas retain the most exposed state."""
+ at,captured_at,_,observed_state,_=observation
+ return (at,captured_at,STATE_RISK.get(observed_state,0))
+
 def read(name):
  with (DATA/name).open(encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
 
@@ -76,14 +81,21 @@ def image_text(paths):
  return result
 
 def identity():
- ids=defaultdict(set);reverse=defaultdict(set)
+ ids=defaultdict(set);reverse=defaultdict(set);names=set()
  for r in read('user_identities.csv'):
-  ids[r['user_id']].update(v for v in tokens(r) if len(v)>6)
+  ids[r['user_id']].update(str(r[k]).strip().casefold() for k in ('name','email','phone','email_hash') if len(r[k].strip())>6)
+  if len(r['name'].strip())>6:names.add(r['name'].strip().casefold())
   ids[r['user_id']].add(r['user_id'])
  for r in read('user_audit_log.csv'):
-  ids[r['user_id']].update(str(r[k]).strip().casefold() for k in ('old_value','new_value') if len(r[k])>6)
+  if r['field_name'] in ('name','email','phone','email_hash','username','alias'):
+   ids[r['user_id']].update(str(r[k]).strip().casefold() for k in ('old_value','new_value') if len(r[k].strip())>6)
+   if r['field_name']=='name':names.update(str(r[k]).strip().casefold() for k in ('old_value','new_value') if len(r[k].strip())>6)
  for uid,vals in ids.items():
   for v in vals:reverse[v].add(uid)
+ for name in names:
+  if len(reverse[name])>1:
+   for uid in reverse[name]:ids[uid].discard(name)
+   del reverse[name]
  return ids,reverse
 
 def evidence():
@@ -144,7 +156,7 @@ def evidence():
     for rid in set(re.findall(r'\b(?:account|support|audit_record|analytics|backup|export|search)_\d+\b',text)):
      add({'resource_id':rid,'document_text':text,'pdf_attachment':p.name=='delivery_correction_attachment.pdf'},cap)
     for link_sys,rid,alias in aliases:
-     if alias in text:
+     if alias in text and (not re.fullmatch(r'user_\d+',alias) or m['origin']==link_sys):
       record={'resource_id':rid,'document_text':text}
       if linked_category(link_sys):record['record_type']=linked_category(link_sys)
       add(record,cap,link_sys)
@@ -156,7 +168,7 @@ def evidence():
      add({'resource_id':rid,'image_text':nearby,'raw_line':nearby},cap)
    image_blob=' '.join(lines)
    for link_sys,rid,alias in aliases:
-    if alias in image_blob:
+    if alias in image_blob and (not re.fullmatch(r'user_\d+',alias) or m['origin']==link_sys):
      record={'resource_id':rid,'image_text':image_blob}
      if linked_category(link_sys):record['record_type']=linked_category(link_sys)
      add(record,cap,link_sys)
@@ -306,7 +318,7 @@ def audit(req,ids,reverse,ev):
   key=(sys,r['resource_id']);v=(at,cap,eid,state(sys,r),category(sys,r,state(sys,r)))
   # Replicas at the same observation time can disagree; preserve the exposed
   # copy until a strictly later eligible observation establishes its treatment.
-  if key not in latest or (v[:2],STATE_RISK.get(v[3],0))>=(latest[key][:2],STATE_RISK.get(latest[key][3],0)):
+  if key not in latest or observation_rank(v)>=observation_rank(latest[key]):
    latest[key]=v
  linked=nearby_account(req) if not any(sys=='account_service' for sys,_ in latest) else None
  if linked:

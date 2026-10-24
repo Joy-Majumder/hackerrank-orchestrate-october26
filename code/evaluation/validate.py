@@ -12,6 +12,13 @@ import main
 
 FIELDS={'step_no','phase','system_id','resource_id','operation','state','evidence_id'}
 
+def visible_identity_conflict(records,subject_keys):
+ for record in records:
+  visible=' '.join(str(record.get(k,'')) for k in ('image_text','document_text'))
+  visible_emails={x.casefold() for x in re.findall(r'[\w.+-]+@[\w.-]+',visible)}
+  if visible_emails and not visible_emails&subject_keys:return True
+ return False
+
 def validate():
  errors=[];warnings=[]
  def error(case,message):errors.append({'case_id':case,'message':message})
@@ -85,12 +92,8 @@ def validate():
       is_catalog_linked=any(sys==s.get('system_id') and rid==s.get('resource_id') and at<=req[case]['audit_at'] and subjects&subject_keys
                             for at,sys,rid,_,subjects in main.catalog_links())
       if is_catalog_linked:
-       for record in record_by_key.get((eid,s.get('system_id'),s.get('resource_id')),[]):
-        visible=' '.join(str(record.get(k,'')) for k in ('image_text','document_text'))
-        visible_emails={x.casefold() for x in re.findall(r'[\w.+-]+@[\w.-]+',visible)}
-        if visible_emails and not visible_emails&subject_keys:
-         warnings.append({'case_id':case,'message':f'step {index} catalog identity conflicts with earlier visible email on {s.get("resource_id")}'})
-         break
+       if visible_identity_conflict(record_by_key.get((eid,s.get('system_id'),s.get('resource_id')),[]),subject_keys):
+        warnings.append({'case_id':case,'message':f'step {index} catalog identity conflicts with earlier visible email on {s.get("resource_id")}'})
    elif phase=='FINDING' or status=='COMPLETE':error(case,f'step {index} lacks required evidence')
    if status=='INCOMPLETE' and phase!='FINDING' and eid:error(case,f'future step {index} has evidence')
    if status=='COMPLETE' and phase!='VERIFICATION':error(case,'COMPLETE contains non-verification step')

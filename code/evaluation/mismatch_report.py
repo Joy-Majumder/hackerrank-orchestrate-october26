@@ -22,7 +22,8 @@ def cause(missing):
 def write_report():
  ids,reverse=main.identity();evidence=main.evidence()
  gold={r['case_id']:r for r in main.read('sample_output.csv')}
- rows=[];groups=Counter()
+ rows=[];machine_rows=[];groups=Counter()
+ history=main.read('user_audit_log.csv')
  for request in main.read('sample_deletion_requests.csv'):
   predicted,actual=main.audit(request,ids,reverse,evidence)
   expected=json.loads(gold[request['case_id']]['steps_json'])
@@ -38,6 +39,24 @@ def write_report():
   wrong_order=not missing and not extra and [identity(s) for s in expected]!=[identity(s) for s in actual]
   root=cause(missing);groups.update(root.split('; '))
   rows.append((request['case_id'],predicted,expected,actual,missing,extra,misidentified,wrong_states,wrong_evidence,wrong_order,root))
+  uid=next(iter(sorted(reverse.get(request['email'].casefold(),()))),None)
+  historical=[{'field':r['field_name'],'old_value':r['old_value'],'new_value':r['new_value'],'event_time':r['event_time']}
+              for r in history if r['user_id']==uid and r['event_time']<=request['audit_at']]
+  missing_resources={(s['system_id'],s['resource_id']) for s in missing}
+  observations=[{'system_id':sys,'resource_id':record['resource_id'],'evidence_id':eid,
+                 'captured_at':cap,'observed_at':at,'observed_state':main.state(sys,record),
+                 'policy_category':main.category(sys,record,main.state(sys,record))}
+                for eid,cap,at,sys,record in evidence if (sys,record['resource_id']) in missing_resources
+                and cap<=request['audit_at'] and at<=request['audit_at']]
+  machine_rows.append({'case_id':request['case_id'],'requested_identity':request['email'],'resolved_user_id':uid,
+                       'historical_identifiers':historical,'audit_at':request['audit_at'],
+                       'expected_status':gold[request['case_id']]['deletion_status'],'actual_status':predicted,
+                       'expected_steps':expected,'actual_steps':actual,'missing_steps':missing,'extra_steps':extra,
+                       'incorrect_resource_ids':misidentified,'incorrect_states':wrong_states,
+                       'incorrect_evidence_ids':wrong_evidence,'incorrect_order':wrong_order,
+                       'missing_resource_observations':observations,
+                       'relevant_evidence_ids':sorted({s['evidence_id'] for s in expected+actual if s['evidence_id']}),
+                       'root_causes':root.split('; ')})
  lines=['# Public sample step mismatch analysis','',
         'This report is generated from `sample_output.csv` and the current `audit` function. It is evaluation only; the prediction engine does not read the public answers. All 17 baseline mismatches were missing steps, with no extra step, wrong state, wrong evidence ID on a matched resource, or pure sorting error. The table below is regenerated after each evaluation.','',
         '## Shared causes and safe corrections','',
@@ -59,6 +78,9 @@ def write_report():
  lines+=['',f'**Current exact arrays:** {32-len(rows)}/32. **Current mismatches:** {len(rows)}.','']
  report=ROOT/'evaluation'/'mismatch_analysis.md';report.write_text('\n'.join(lines),encoding='utf-8')
  (ROOT/'code'/'evaluation'/'mismatch_analysis.md').write_text('\n'.join(lines),encoding='utf-8')
+ machine={'sample_count':32,'exact_array_count':32-len(rows),'mismatch_count':len(rows),
+          'root_cause_counts':dict(groups),'cases':machine_rows}
+ (ROOT/'evaluation'/'mismatch_analysis.json').write_text(json.dumps(machine,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
  return {'exact':32-len(rows),'mismatches':len(rows),'groups':dict(groups)}
 
 if __name__=='__main__':print(write_report())

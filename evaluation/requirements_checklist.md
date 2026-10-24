@@ -15,7 +15,7 @@ Official source: `AGENTS.md` §6 and `problem_statement.md`. The pasted developm
 | Evidence-backed findings/complete checks | AGENTS §6.6 | `catalog_links`, `evidence`, `audit`, `validate` | Strict validator and four-case regression test | Pass structurally; `case_63` identity evidence remains substantively disputed |
 | Future actions have empty evidence IDs | AGENTS §6.6 | `audit` | Strict validator | Pass |
 | Phase/operation/state/order | AGENTS §6.3–6.4 | `OPS`, `ORDER`, `PHASE`, `audit` | Strict validator | Pass |
-| Public sample evaluation and custom cases | AGENTS §6.8 | `code/evaluation/main.py`, `code/tests/test_cases.py` | 32 samples, 19 tests, 3 extra checks | Pass as evaluation deliverable; 15/32 exact arrays remain |
+| Public sample evaluation and custom cases | AGENTS §6.8 | `code/evaluation/main.py`, `code/tests/test_cases.py` | 32 samples, 23 tests, 3 extra checks | Pass as evaluation deliverable; 15/32 exact arrays remain |
 | Model usage report | AGENTS §6.8 | `evaluation/usage_report.md` | Final run inspection | Pass: 0 runtime model calls |
 | Archive contents and exclusions | AGENTS §6.9 | `code.zip` | ZIP listing and clean-run reproduction | Recheck after final packaging |
 | Root append-only transcript | AGENTS §2, §5 | `log.txt` | Entry review and metadata check | Current turn entry required before final commit |
